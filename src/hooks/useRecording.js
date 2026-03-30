@@ -8,10 +8,10 @@ export default function useRecording(addLog) {
   const chunksRef = useRef([]);
   const facingModeRef = useRef("environment");
 
-  // 🚀 Start Camera + Recording
+  // 🎥 Start Camera + Recording
   const startRecording = async () => {
     try {
-      // 👉 If already running, don't restart camera
+      // 👉 Start camera only if not already running
       if (!streamRef.current) {
         const stream = await navigator.mediaDevices.getUserMedia({
           video: { facingMode: facingModeRef.current },
@@ -43,7 +43,7 @@ export default function useRecording(addLog) {
 
         video.srcObject = stream;
         video.autoplay = true;
-        video.muted = true;       // required
+        video.muted = true;       // required for autoplay
         video.playsInline = true; // iPhone fix
 
         await video.play();
@@ -72,9 +72,15 @@ export default function useRecording(addLog) {
 
         const url = URL.createObjectURL(blob);
 
-        // 💾 Silent local save (no popup)
-        localStorage.setItem(`video_${Date.now()}`, url);
-        addLog("💾 Video saved locally");
+        // ✅ REAL SAVE TO DEVICE (AUTO DOWNLOAD)
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `evidence_${Date.now()}.webm`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+
+        addLog("💾 Video saved to device");
 
         // ☁️ Upload to Firebase
         try {
@@ -93,7 +99,7 @@ export default function useRecording(addLog) {
 
       recorder.start();
 
-      // ⏱ Stop after 10 seconds (BUT KEEP CAMERA ON)
+      // ⏱ Stop after 10 seconds (camera stays ON)
       setTimeout(() => {
         if (recorder.state !== "inactive") {
           recorder.stop();
@@ -106,7 +112,7 @@ export default function useRecording(addLog) {
     }
   };
 
-  // 🔄 Switch Camera (front/back)
+  // 🔄 Switch Camera
   const switchCamera = async () => {
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => track.stop());
