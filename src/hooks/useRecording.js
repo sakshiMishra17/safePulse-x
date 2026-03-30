@@ -8,50 +8,50 @@ export default function useRecording(addLog) {
   const chunksRef = useRef([]);
   const facingModeRef = useRef("environment");
 
-  const stopStream = () => {
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => track.stop());
-    }
-  };
-
+  // 🚀 Start Camera + Recording
   const startRecording = async () => {
     try {
-      // 🛑 Stop previous stream (IMPORTANT)
-      stopStream();
+      // 👉 If already running, don't restart camera
+      if (!streamRef.current) {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: facingModeRef.current },
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
+        });
 
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: facingModeRef.current },
-        audio: true,
-      });
+        streamRef.current = stream;
 
-      streamRef.current = stream;
+        addLog("🎥 Camera started");
 
-      addLog("🎥 Camera started");
+        // 🎥 Attach preview
+        let video = document.getElementById("camera-preview");
 
-      // 🎥 VIDEO ELEMENT
-      let video = document.getElementById("camera-preview");
+        if (!video) {
+          video = document.createElement("video");
+          video.id = "camera-preview";
 
-      if (!video) {
-        video = document.createElement("video");
-        video.id = "camera-preview";
+          video.style.width = "90%";
+          video.style.maxWidth = "320px";
+          video.style.borderRadius = "10px";
+          video.style.marginTop = "10px";
 
-        video.style.width = "90%";
-        video.style.maxWidth = "320px";
-        video.style.borderRadius = "10px";
-        video.style.marginTop = "10px";
+          document.body.appendChild(video);
+        }
 
-        document.body.appendChild(video);
+        video.srcObject = stream;
+        video.autoplay = true;
+        video.muted = true;       // required
+        video.playsInline = true; // iPhone fix
+
+        await video.play();
       }
 
-      // 🔥 FIXES
-      video.srcObject = stream;
-      video.autoplay = true;
-      video.muted = true;
-      video.playsInline = true;
+      const stream = streamRef.current;
 
-      await video.play();
-
-      // 🎥 RECORDING
+      // 🎥 Recorder setup
       const recorder = new MediaRecorder(stream, {
         mimeType: "video/webm;codecs=vp8,opus",
       });
@@ -70,16 +70,13 @@ export default function useRecording(addLog) {
           type: "video/webm",
         });
 
-        // 💾 SAVE LOCALLY
         const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `evidence_${Date.now()}.webm`;
-        a.click();
 
-        addLog("💾 Video saved");
+        // 💾 Silent local save (no popup)
+        localStorage.setItem(`video_${Date.now()}`, url);
+        addLog("💾 Video saved locally");
 
-        // ☁️ UPLOAD
+        // ☁️ Upload to Firebase
         try {
           const storageRef = ref(
             storage,
@@ -90,26 +87,32 @@ export default function useRecording(addLog) {
         } catch {
           addLog("❌ Upload failed");
         }
+
+        addLog("🎥 Recording complete (camera still active)");
       };
 
       recorder.start();
 
-      // ⏱ Stop after 10 sec
+      // ⏱ Stop after 10 seconds (BUT KEEP CAMERA ON)
       setTimeout(() => {
         if (recorder.state !== "inactive") {
           recorder.stop();
-          stopStream();
         }
       }, 10000);
 
     } catch (err) {
       console.error(err);
-      addLog("❌ Camera permission denied or error");
+      addLog("❌ Camera/Mic error");
     }
   };
 
-  // 🔄 SWITCH CAMERA (FIXED)
+  // 🔄 Switch Camera (front/back)
   const switchCamera = async () => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+    }
+
     facingModeRef.current =
       facingModeRef.current === "user" ? "environment" : "user";
 
