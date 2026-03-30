@@ -1,30 +1,34 @@
+import { useRef } from "react";
 import { storage } from "../services/firebase";
 import { ref, uploadBytes } from "firebase/storage";
 
-let currentFacingMode = "environment";
-
 export default function useRecording(addLog) {
-  let mediaRecorder;
-  let chunks = [];
-  let currentStream = null;
+  const mediaRecorderRef = useRef(null);
+  const streamRef = useRef(null);
+  const chunksRef = useRef([]);
+  const facingModeRef = useRef("environment");
+
+  const stopStream = () => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+    }
+  };
 
   const startRecording = async () => {
     try {
-      // Stop previous stream
-      if (currentStream) {
-        currentStream.getTracks().forEach(track => track.stop());
-      }
+      // 🛑 Stop previous stream (IMPORTANT)
+      stopStream();
 
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: currentFacingMode },
+        video: { facingMode: facingModeRef.current },
         audio: true,
       });
 
-      currentStream = stream;
+      streamRef.current = stream;
 
-      addLog("🎥 Camera + Mic started");
+      addLog("🎥 Camera started");
 
-      // 🎥 CREATE VIDEO ELEMENT (FIXED)
+      // 🎥 VIDEO ELEMENT
       let video = document.getElementById("camera-preview");
 
       if (!video) {
@@ -33,32 +37,40 @@ export default function useRecording(addLog) {
 
         video.style.width = "90%";
         video.style.maxWidth = "320px";
-        video.style.marginTop = "10px";
         video.style.borderRadius = "10px";
+        video.style.marginTop = "10px";
 
         document.body.appendChild(video);
       }
 
-      // 🔥 IMPORTANT FIXES
+      // 🔥 FIXES
       video.srcObject = stream;
       video.autoplay = true;
-      video.muted = true;        // 🔥 required for autoplay
-      video.playsInline = true;  // 🔥 required for iPhone
+      video.muted = true;
+      video.playsInline = true;
 
       await video.play();
 
       // 🎥 RECORDING
-      mediaRecorder = new MediaRecorder(stream);
-      chunks = [];
+      const recorder = new MediaRecorder(stream, {
+        mimeType: "video/webm;codecs=vp8,opus",
+      });
 
-      mediaRecorder.ondataavailable = (e) => {
-        if (e.data.size > 0) chunks.push(e.data);
+      mediaRecorderRef.current = recorder;
+      chunksRef.current = [];
+
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) {
+          chunksRef.current.push(e.data);
+        }
       };
 
-      mediaRecorder.onstop = async () => {
-        const blob = new Blob(chunks, { type: "video/webm" });
+      recorder.onstop = async () => {
+        const blob = new Blob(chunksRef.current, {
+          type: "video/webm",
+        });
 
-        // 💾 LOCAL SAVE
+        // 💾 SAVE LOCALLY
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
@@ -67,7 +79,7 @@ export default function useRecording(addLog) {
 
         addLog("💾 Video saved");
 
-        // ☁️ CLOUD UPLOAD
+        // ☁️ UPLOAD
         try {
           const storageRef = ref(
             storage,
@@ -80,26 +92,29 @@ export default function useRecording(addLog) {
         }
       };
 
-      mediaRecorder.start();
+      recorder.start();
 
+      // ⏱ Stop after 10 sec
       setTimeout(() => {
-        if (mediaRecorder && mediaRecorder.state !== "inactive") {
-          mediaRecorder.stop();
+        if (recorder.state !== "inactive") {
+          recorder.stop();
+          stopStream();
         }
       }, 10000);
 
     } catch (err) {
-      addLog("❌ Camera/Mic permission denied");
       console.error(err);
+      addLog("❌ Camera permission denied or error");
     }
   };
 
-  // 🔄 SWITCH CAMERA
-  const switchCamera = () => {
-    currentFacingMode =
-      currentFacingMode === "user" ? "environment" : "user";
+  // 🔄 SWITCH CAMERA (FIXED)
+  const switchCamera = async () => {
+    facingModeRef.current =
+      facingModeRef.current === "user" ? "environment" : "user";
 
-    startRecording();
+    addLog("🔄 Switching camera...");
+    await startRecording();
   };
 
   return { startRecording, switchCamera };
